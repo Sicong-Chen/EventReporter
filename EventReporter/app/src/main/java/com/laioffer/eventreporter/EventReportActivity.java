@@ -1,6 +1,8 @@
 package com.laioffer.eventreporter;
 
 import android.app.Activity;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.AsyncTask;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
@@ -12,6 +14,8 @@ import android.widget.ImageView;
 import android.widget.Toast;
 
 import com.google.android.gms.tasks.OnCompleteListener;
+import com.google.android.gms.tasks.OnFailureListener;
+import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.AuthResult;
 import com.google.firebase.auth.FirebaseAuth;
@@ -19,6 +23,9 @@ import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
+import com.google.firebase.storage.FirebaseStorage;
+import com.google.firebase.storage.StorageReference;
+import com.google.firebase.storage.UploadTask;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +46,17 @@ public class EventReportActivity extends AppCompatActivity {
     private LocationTracker mLocationTracker;
     private Activity mActivity;
 
+    private static int RESULT_LOAD_IMAGE = 1;
+    private ImageView img_event_picture;
+    private Uri mImgUri;    // uri: refer to DB; file search
+
+    // Cloud storage
+    private FirebaseStorage storage;
+    private StorageReference storageRef;
+
+
+
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,15 +72,45 @@ public class EventReportActivity extends AppCompatActivity {
         mImageViewSend = (ImageView) findViewById(R.id.img_event_report);
         database = FirebaseDatabase.getInstance().getReference();
 
+        img_event_picture = (ImageView) findViewById(R.id.img_event_picture_capture);
+
+        // get instance, by singleton
+        storage = FirebaseStorage.getInstance();
+        storageRef = storage.getReference();
+
+        // mImgUri represents image Uri
+        // upload image by calling uploadImage()
         mImageViewSend.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 String key = uploadEvent();
+                if (mImgUri != null) {
+                    uploadImage(key);
+                    mImgUri = null;
+                }
             }
         });
 
 
+
+        // implicit intent
+        // (because can call not only gallery, but also other applications when designed)
+        // startActivityForResult : return to current activity, with help of Uri
+        mImageViewCamera.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                Intent intent = new Intent(
+                        Intent.ACTION_PICK,
+                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                startActivityForResult(intent, RESULT_LOAD_IMAGE);
+            }
+        });
+
+
+
         //auth
+        // we should see: signInAnonymously:onComplete:true
+        // after login --> and click + to write report
         mAuth = FirebaseAuth.getInstance();
         mAuthListener = new FirebaseAuth.AuthStateListener() {
             @Override
@@ -114,6 +162,24 @@ public class EventReportActivity extends AppCompatActivity {
 
 
     }
+
+    // go to gallery choose pictures that we want to push to cloud,
+    // allows us going to another activity to choose a picture and return back to current activity
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        try {
+            if (requestCode == RESULT_LOAD_IMAGE && resultCode == RESULT_OK && null != data) {
+                Uri selectedImage = data.getData();
+                img_event_picture.setVisibility(View.VISIBLE);
+                img_event_picture.setImageURI(selectedImage);
+                mImgUri = selectedImage;    // global variable
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+    }
+
 
     @Override
     public void onStart() {
@@ -169,5 +235,40 @@ public class EventReportActivity extends AppCompatActivity {
         });
         return key;
     }
+
+
+    /**
+     * Upload image and get file path
+     */
+    private void uploadImage(final String eventId) {
+        if (mImgUri == null) {
+            return;
+        }
+        // tree structure, create child folder, create by name of path
+        StorageReference imgRef = storageRef.child("images/" + mImgUri.getLastPathSegment() + "_"
+                + System.currentTimeMillis());
+
+        UploadTask uploadTask = imgRef.putFile(mImgUri);
+
+        // Register observers to listen for when the download is done or if it fails
+        uploadTask.addOnFailureListener(new OnFailureListener() {
+            @Override
+            public void onFailure(@NonNull Exception exception) {
+                // Handle unsuccessful uploads
+            }
+        }).addOnSuccessListener(new OnSuccessListener<UploadTask.TaskSnapshot>() {
+            @Override
+
+            // get Uri of the image that has been successfully uploaded
+            public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
+                @SuppressWarnings("VisibleForTests")
+                Uri downloadUrl = taskSnapshot.getDownloadUrl();
+                Log.i(TAG, "upload successfully" + eventId);
+                database.child("events").child(eventId).child("imgUri").
+                        setValue(downloadUrl.toString());
+            }
+        });
+    }
+
 
 }

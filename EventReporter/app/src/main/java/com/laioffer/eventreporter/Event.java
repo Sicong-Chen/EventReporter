@@ -15,6 +15,19 @@ public class Event {
     private String username;
     private String imgUri;
 
+    private int CommentNumber;
+
+    public int getCommentNumber() {         // command N auto getter and setter
+        return CommentNumber;
+    }
+
+    // update comment number
+    public void setCommentNumber(int commentNumber) {
+        CommentNumber = commentNumber;
+    }
+
+
+
     public Event() {}
 
 
